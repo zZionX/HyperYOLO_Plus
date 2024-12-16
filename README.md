@@ -2,6 +2,7 @@
 
 This repository contains the source code for the paper "Hyper-YOLO: When Visual Object Detection Meets Hypergraph Computation" published in IEEE Transactions on Pattern Analysis and Machine Intelligence (TPAMI) 2025 by [Yifan Feng](https://fengyifan.site/), Jiangang Huang, Shaoyi Du, Shihui Ying, Jun-Hai Yong, Yipeng Li, Guiguang Ding, Rongrong Ji, and Yue Gao*. This paper is available at [here](https://www.arxiv.org/abs/2408.04804).
 
+
 In this repository, we provide the implementation of Hyper-YOLO v1.1, which integrates the advantages of [YOLOv9](https://github.com/WongKinYiu/yolov9) and [Hyper-YOLO](https://github.com/iMoonLab/Hyper-YOLO), achieving the state-of-the-art performance on MS COCO dataset. 
 
 
@@ -10,6 +11,9 @@ In this repository, we provide the implementation of Hyper-YOLO v1.1, which inte
         <img src="docs/performance_v11.jpg" width="40%">
     </a>
 </div>
+
+## NEWS 🔥
+- Our paper has been accepted by TPAMI.
 
 
 ## Performance on MS COCO
