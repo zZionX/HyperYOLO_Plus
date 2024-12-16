@@ -13,7 +13,7 @@ In this repository, we provide the implementation of Hyper-YOLO v1.1, which inte
 </div>
 
 ## NEWS 🔥
-- Our paper has been accepted by TPAMI.
+- 2024/12/14: Our paper has been accepted by TPAMI.
 
 
 ## Performance on MS COCO
