@@ -1238,8 +1238,8 @@ class HyperComputeModule(nn.Module):
         
         hg = distance < self.threshold # 调试distance
 
-        true_counts_per_column = hg.sum(dim=1)
-        print(true_counts_per_column.tolist()[0])
+        # true_counts_per_column = hg.sum(dim=1)
+        # print(true_counts_per_column.tolist()[0])
 
         # s3 = time.time()
 
@@ -1359,6 +1359,52 @@ class SplitHyperComputeModule(nn.Module):
         # s4 = time.time()
 
         return x#, t1, t2, t3, t4, t5#, s2-s1, s4-s3
+
+def _build_graph_adj_threshold(feature, threshold):
+    B, N, d = feature.shape
+    assert N % 5 == 0, "总特征数必须为5的倍数"
+    x = N // 5  # 每组特征数
+
+    D = torch.cdist(feature, feature, p=2)  # (B, 5x, 5x)
+    
+    mask = D < threshold
+
+    # 这段代码需要查查正确性？
+    mask_rows = mask.view(B, 5, x, N)  # (B, 5, x, 5*x)
+    mask_rows = mask_rows.any(dim=1)  # (B, x, 5*x)
+
+    mask_final = mask_rows.view(B, x, 5, x).any(dim=2)  # (B, x, x)
+
+    return mask_final
+
+class SplitHyperComputeModule_Threshold(nn.Module):
+    def __init__(self, c1, c2):
+        super().__init__()
+        self.threshold = 11 # 阈值
+        self.conv1x1 = Conv(c1, c2, k=1)
+        self.hgconv = HyPConv(c2, c2)  # c1=c2
+        self.bn = nn.BatchNorm2d(c2)
+        self.act = nn.SiLU()
+
+    def forward(self, x): # x: list of tensor
+        b, c, h, w = x[0].shape[0], x[0].shape[1], x[0].shape[2], x[0].shape[3]
+        device, dataType = x[0].device, x[0].dtype
+
+        tmp = [y.clone().view(b, c, -1).transpose(1, 2).contiguous() for y in x]
+        feature = torch.cat(tmp, 1) # [b, h*w, c] -> b, 5*h*w, c
+
+        hg = _build_graph_adj_threshold(feature, self.threshold)
+        hg = hg.float().to(device).to(dataType)
+
+        x = torch.cat(x, 1) # [b, c, h, w] -> b, 5*c, h, w
+        x = self.conv1x1(x)
+        x = x.view(b, c, -1).transpose(1, 2).contiguous()
+
+        x = self.hgconv(x, hg).to(device).to(dataType) + x
+        x = x.transpose(1, 2).contiguous().view(b, c, h, w)
+        x = self.act(self.bn(x))
+
+        return x
 
 class MessageAgg(nn.Module):
     def __init__(self, agg_method="mean"):

@@ -1,18 +1,18 @@
 python  -m torch.distributed.run \
         --nproc_per_node 8 \
-        --master_port 11527 \
+        --master_port 11577 \
         train_dual.py \
         --workers 8 \
         --device 0,1,2,3,4,5,6,7 \
         --sync-bn \
-        --batch-size 128 \
+        --batch-size 8 \
         --data data/coco.yaml \
         --img 640 \
-        --cfg models/detect/s-shuffle-40x40-split.yaml \
+        --cfg models/detect/s-shuffle-40x40-split-threshold.yaml \
         --weights '' \
-        --name s-shuffle-40x40-k30 \
+        --name test \
         --hyp hyp.scratch-low.yaml \
-        --epochs 700
+        --epochs 1
 
 python  train_dual.py \
         --workers 8 \

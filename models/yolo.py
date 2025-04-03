@@ -744,7 +744,7 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
             if m in {BottleneckCSP, SPPCSPC}:
                 args.insert(2, n)  # number of repeats
                 n = 1
-        elif m is SplitHyperComputeModule:
+        elif m in {SplitHyperComputeModule, SplitHyperComputeModule_Threshold}:
             c1 = sum(ch[x] for x in f)
             c2 = args[0]
             args = [c1, c2]
