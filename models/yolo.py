@@ -530,7 +530,11 @@ class BaseModel(nn.Module):
                 x = y[m.f] if isinstance(m.f, int) else [x if j == -1 else y[j] for j in m.f]  # from earlier layers
             if profile:
                 self._profile_one_layer(m, x, dt)
+            # print(m.i)
             x = m(x)  # run
+            # if isinstance(x, torch.Tensor):
+            #     print(x.is_contiguous())
+            # print(x.shape if isinstance(x, torch.Tensor) else 0)
             y.append(x if m.i in self.save else None)  # save output
             if visualize:
                 feature_visualization(x, m.type, m.i, save_dir=visualize)
@@ -580,7 +584,7 @@ class BaseModel(nn.Module):
 class DetectionModel(BaseModel):
     # YOLO detection model
     def __init__(self, cfg='yolo.yaml', ch=3, nc=None, anchors=None):  # model, input channels, number of classes
-        super().__init__()
+        super().__init__() # 无
         if isinstance(cfg, dict):
             self.yaml = cfg  # model dict
         else:  # is *.yaml
@@ -731,8 +735,7 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
         n = n_ = max(round(n * gd), 1) if n > 1 else n  # depth gain
         if m in {
             Conv, AConv, ConvTranspose, 
-            Bottleneck, SPP, SPPF, DWConv, BottleneckCSP, nn.ConvTranspose2d, DWConvTranspose2d, SPPCSPC, ADown,
-            RepNCSPELAN4, SPPELAN, HyperComputeModule}:
+            Bottleneck, SPP, SPPF, DWConv, BottleneckCSP, nn.ConvTranspose2d, DWConvTranspose2d, SPPCSPC, ADown, RepNCSPELAN4, SPPELAN, HyperComputeModule, ShuffleDownSample}:
             c1, c2 = ch[f], args[0]
             if c2 != no:  # if not output
                 c2 = make_divisible(c2 * gw, 8)
@@ -741,6 +744,10 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
             if m in {BottleneckCSP, SPPCSPC}:
                 args.insert(2, n)  # number of repeats
                 n = 1
+        elif m is SplitHyperComputeModule:
+            c1 = sum(ch[x] for x in f)
+            c2 = args[0]
+            args = [c1, c2]
         elif m is nn.BatchNorm2d:
             args = [ch[f]]
         elif m is Concat:

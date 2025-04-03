@@ -68,7 +68,7 @@ class AConv(nn.Module):
         return self.cv1(x)
 
 
-class ADown(nn.Module):
+class ADown(nn.Module): # (B, c1, H_in, W_in) -> (B, c2, H_in//2, W_in//2)
     def __init__(self, c1, c2):  # ch_in, ch_out, shortcut, kernels, groups, expand
         super().__init__()
         self.c = c2 // 2
@@ -1217,7 +1217,7 @@ class Classify(nn.Module):
 class HyperComputeModule(nn.Module):
     def __init__(self, c1, c2):
         super().__init__()
-        self.threshold = 11
+        self.threshold = 11 # 试两种方法 KNN 和 阈值
         self.hgconv = HyPConv(c1, c2)  # c1=c2
         self.bn = nn.BatchNorm2d(c2)
         self.act = nn.SiLU()
@@ -1225,17 +1225,140 @@ class HyperComputeModule(nn.Module):
     def forward(self, x):
 
         b, c, h, w = x.shape[0], x.shape[1], x.shape[2], x.shape[3]
+
         x = x.view(b, c, -1).transpose(1, 2).contiguous()
         feature = x.clone()
+        
+        # import time
+        # s1 = time.time()
+        
         distance = torch.cdist(feature, feature)
-        hg = distance < self.threshold
+
+        # s2 = time.time()
+        
+        hg = distance < self.threshold # 调试distance
+
+        true_counts_per_column = hg.sum(dim=1)
+        print(true_counts_per_column.tolist()[0])
+
+        # s3 = time.time()
+
         hg = hg.float().to(x.device).to(x.dtype)
+
+        # s2 = time.time()
+
         x = self.hgconv(x, hg).to(x.device).to(x.dtype) + x
         x = x.transpose(1, 2).contiguous().view(b, c, h, w)
         x = self.act(self.bn(x))
 
-        return x
+        # s4 = time.time()
 
+        # print(f'cdist: {s2-s1}')
+        # print(f'less than: {s3-s2}')
+        # print(f'calculate: {s4-s3}')
+
+        return x#, s2-s1, s4-s2
+
+def _build_graph_adj(feature, k):
+    B, N, d = feature.shape
+    assert N % 5 == 0, "总特征数必须为5的倍数"
+    x = N // 5  # 每组特征数
+
+    # import time
+    # s1 = time.perf_counter()
+
+    # 1. 计算两两之间的距离矩阵，形状 (B, N, N)
+    D = torch.cdist(feature, feature, p=2)  # (B, 5x, 5x)
+
+    # torch.cuda.synchronize()
+    # s2 = time.perf_counter()
+
+    # s2 = time.perf_counter()
+
+    # 2. 对于每列选取最小的 k 个距离（注意这里 dim=1 表示沿着“行”搜索，即每列）
+    #    topk 返回的 indices 形状为 (B, k, N)
+    #    因为对于每个 batch 中的每一列（第2个维度），都找 k 个“行索引”
+    topk_vals, topk_indices = torch.topk(D, k=k, dim=1, largest=False)
+    
+    # torch.cuda.synchronize()
+    # s3 = time.perf_counter()
+
+    # s3 = time.perf_counter()
+
+    # 3. 构造布尔 mask，大小为 (B, N, N)，每列中 k 个位置为 True
+    mask = torch.zeros_like(D, dtype=torch.bool)
+    # 构造 batch 和列的索引
+    batch_idx = torch.arange(B, device=feature.device).view(B, 1, 1).expand(B, k, N)
+    col_idx = torch.arange(N, device=feature.device).view(1, 1, N).expand(B, k, N)
+    mask[batch_idx, topk_indices, col_idx] = True
+
+    # torch.cuda.synchronize()
+    # s4 = time.perf_counter()
+
+    # s4 = time.perf_counter()
+
+    # 4. 将行进行归并：按照行索引 mod x 来分成 x 组，每组包含 5 行（因为总行数为 5*x）
+    #    先将 mask 的第一维（行）reshape为 (B, 5, x, N)
+    mask_rows = mask.view(B, 5, x, N)  # (B, 5, x, 5*x)
+    # 对于每个组，逻辑或（any）操作，沿第2维（5个组内的行）做合并，得到 (B, x, N)
+    mask_rows = mask_rows.any(dim=1)  # (B, x, 5*x)
+
+    # torch.cuda.synchronize()
+    # s5 = time.perf_counter()
+
+    # s5 = time.perf_counter()
+
+    # 5. 将列也按相同规则归并：先将列 reshape 为 (B, x, 5, x)
+    mask_final = mask_rows.view(B, x, 5, x).any(dim=2)  # (B, x, x)
+
+    # torch.cuda.synchronize()
+    # s6 = time.perf_counter()
+
+    # print(f'cdist: {s2-s1}')
+    # print(f'topk: {s3-s2}')
+    # print(f'mask: {s4-s3}')
+    # print(f'mask_rows: {s5-s4}')
+    # print(f'mask_final: {s6-s5}')
+
+    return mask_final#, s2-s1, s3-s2, s4-s3, s5-s4, s6-s5
+
+class SplitHyperComputeModule(nn.Module):
+    def __init__(self, c1, c2):
+        super().__init__()
+        # self.threshold = 11 # 试两种方法 KNN 和 阈值
+        self.num = 30
+        self.conv1x1 = Conv(c1, c2, k=1)
+        self.hgconv = HyPConv(c2, c2)  # c1=c2
+        self.bn = nn.BatchNorm2d(c2)
+        self.act = nn.SiLU()
+
+    def forward(self, x): # x: list of tensor
+        b, c, h, w = x[0].shape[0], x[0].shape[1], x[0].shape[2], x[0].shape[3]
+        device, dataType = x[0].device, x[0].dtype
+
+
+        tmp = [y.clone().view(b, c, -1).transpose(1, 2).contiguous() for y in x]
+        feature = torch.cat(tmp, 1) # b, h*w, c
+
+        # import time
+        # s1 = time.time()
+
+        hg = _build_graph_adj(feature, self.num)
+        hg = hg.float().to(device).to(dataType)
+
+        # s2 = time.time()
+
+        x = torch.cat(x, 1) # b, c, h, w
+        x = self.conv1x1(x)
+        x = x.view(b, c, -1).transpose(1, 2).contiguous()
+
+        # s3 = time.time()
+        x = self.hgconv(x, hg).to(device).to(dataType) + x
+        x = x.transpose(1, 2).contiguous().view(b, c, h, w)
+        x = self.act(self.bn(x))
+        # s4 = time.time()
+
+        return x#, t1, t2, t3, t4, t5#, s2-s1, s4-s3
 
 class MessageAgg(nn.Module):
     def __init__(self, agg_method="mean"):
@@ -1274,5 +1397,26 @@ class HyPConv(nn.Module):
         x = self.e2v(E, H)
         return x
 
+class ShuffleDownSample(nn.Module):
+    def __init__(self, C, Cout, r):
+        super(ShuffleDownSample, self).__init__()
+        self.r = r
+        self.C = C
+        self.Cout = Cout
+        self.conv1x1 = Conv(C * (r ** 2), Cout, k=1)  # 1x1 convolution using the Conv class
+        
+    def pixel_unshuffle(self, x):
+        """
+        Perform PixelUnshuffle operation on input tensor.
+        """
+        return F.pixel_unshuffle(x, self.r)
+
+    def forward(self, x):
+        """
+        Forward pass through the ShuffleDownSample module.
+        """
+        x = self.pixel_unshuffle(x)
+        x = self.conv1x1(x)
+        return x
 
 

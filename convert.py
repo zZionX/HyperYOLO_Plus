@@ -7,7 +7,7 @@ model = Model(cfg, ch=3, nc=80, anchors=3)
 #model = model.half()
 model = model.to(device)
 _ = model.eval()
-ckpt = torch.load('./runs/train/exp/weights/best.pt', map_location='cpu')
+ckpt = torch.load('/home2/zhouzhixiang/Hyper-YOLOv1.1/runs/train/yolov9-s-hyper-baseline/weights/best.pt', map_location='cpu')
 model.names = ckpt['model'].names
 model.nc = ckpt['model'].nc
 idx = 0
@@ -60,6 +60,6 @@ m_ckpt = {'model': model.half(),
           'git': None,
           'date': None,
           'epoch': -1}
-torch.save(m_ckpt, "./yolov9-s-hyper-converted.pt")
+torch.save(m_ckpt, "/home2/zhouzhixiang/Hyper-YOLOv1.1/runs/train/yolov9-s-hyper-baseline/weights/best-converted.pt")
 
 
